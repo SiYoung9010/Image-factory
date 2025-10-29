@@ -1,0 +1,5 @@
+{
+  "name": "Image Factory: AI Image Editor",
+  "description": "Upload an image and use simple text prompts to perform powerful edits, such as adding filters, removing objects, or changing the background, powered by Gemini.",
+  "requestFramePermissions": []
+}
