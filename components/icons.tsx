@@ -65,3 +65,9 @@ export const TextScanIcon: React.FC<IconProps> = (props) => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5h15v15h-15z" opacity="0.4" />
     </svg>
 );
+
+export const TranslateIcon: React.FC<IconProps> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c1.356 0 2.673-.11 3.935-.322M12 21c-1.356 0-2.673-.11-3.935-.322m0 0A9.007 9.007 0 0112 3c1.356 0 2.673.11 3.935.322m0 0A9.007 9.007 0 0012 3c-1.356 0-2.673.11-3.935.322m0 0c-2.093.36-3.995 1.126-5.525 2.164m11.05 0c1.53-1.038 3.432-1.804 5.525-2.164m-16.5 5.414A9 9 0 0012 15c2.093 0 3.995-.36 5.525-1.126m-11.05 0a9 9 0 0111.05 0" />
+  </svg>
+);

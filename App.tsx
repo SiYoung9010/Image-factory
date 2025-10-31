@@ -1,8 +1,8 @@
 import React, { useState, useCallback, ChangeEvent, useRef, useLayoutEffect } from 'react';
-import { editImage, detectObjects, DetectedObject, generateImageFromPrompt, detectWatermarkText } from './services/geminiService';
+import { editImage, detectObjects, DetectedObject, generateImageFromPrompt, detectText } from './services/geminiService';
 import { compositeImages } from './services/canvasService';
 import { fileToBase64 } from './utils/fileUtils';
-import { DownloadIcon, SparklesIcon, UploadIcon, XCircleIcon, IsolateIcon, TrashIcon, ObjectDetectIcon, ImageIcon, WandIcon, TextScanIcon } from './components/icons';
+import { DownloadIcon, SparklesIcon, UploadIcon, XCircleIcon, IsolateIcon, TrashIcon, ObjectDetectIcon, ImageIcon, WandIcon, TextScanIcon, TranslateIcon } from './components/icons';
 import { QuickActionButton } from './components/QuickActionButton';
 import { EDIT_PRESETS, PresetKey } from './constants/editPresets';
 
@@ -10,6 +10,10 @@ type ImageState = {
   src: string;
   file: File;
 } | null;
+
+const areObjectsEqual = (objA: DetectedObject, objB: DetectedObject) => {
+    return objA.label === objB.label && JSON.stringify(objA.boundingBox) === JSON.stringify(objB.boundingBox);
+};
 
 const ImagePlaceholder: React.FC<{ onFileChange: (e: ChangeEvent<HTMLInputElement>) => void, id?: string }> = ({ onFileChange, id = "file-upload" }) => (
   <div className="w-full aspect-square bg-gray-800/50 rounded-lg border-2 border-dashed border-gray-600 flex flex-col items-center justify-center text-center p-4 transition-colors hover:border-blue-500 hover:bg-gray-800">
@@ -26,9 +30,9 @@ const ImagePreview: React.FC<{
   src: string;
   onClear: () => void;
   detectedObjects?: DetectedObject[];
-  selectedObject?: DetectedObject | null;
-  onObjectSelect?: (object: DetectedObject | null) => void;
-}> = ({ src, onClear, detectedObjects = [], selectedObject, onObjectSelect }) => {
+  selectedObjects?: DetectedObject[];
+  onObjectSelect?: (object: DetectedObject) => void;
+}> = ({ src, onClear, detectedObjects = [], selectedObjects = [], onObjectSelect }) => {
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [renderInfo, setRenderInfo] = useState({ width: 0, height: 0, top: 0, left: 0 });
@@ -93,7 +97,7 @@ const ImagePreview: React.FC<{
       {onObjectSelect && (
         <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-20">
           {detectedObjects.map((object, index) => {
-            const isSelected = selectedObject?.label === object.label && JSON.stringify(selectedObject.boundingBox) === JSON.stringify(object.boundingBox);
+            const isSelected = selectedObjects.some(obj => areObjectsEqual(obj, object));
             const { x_min, y_min, x_max, y_max } = object.boundingBox;
             const boxStyle: React.CSSProperties = {
               position: 'absolute',
@@ -111,7 +115,7 @@ const ImagePreview: React.FC<{
                 className={`cursor-pointer transition-all duration-200 ${isSelected ? 'border-4 border-green-400' : 'border-2 border-cyan-400 hover:bg-cyan-400/30'}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onObjectSelect(isSelected ? null : object);
+                  onObjectSelect(object);
                 }}
               >
                 <span className={`absolute -top-6 left-0 text-xs font-bold px-1.5 py-0.5 rounded-sm ${isSelected ? 'bg-green-400 text-black' : 'bg-cyan-400 text-black'}`}>
@@ -185,7 +189,7 @@ export default function App() {
   
   // Object detection state
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
-  const [selectedObject, setSelectedObject] = useState<DetectedObject | null>(null);
+  const [selectedObjects, setSelectedObjects] = useState<DetectedObject[]>([]);
   
   // Compositor state
   const [objectImage, setObjectImage] = useState<ImageState>(null);
@@ -205,7 +209,7 @@ export default function App() {
         setResultImage(null);
         setError(null);
         setDetectedObjects([]);
-        setSelectedObject(null);
+        setSelectedObjects([]);
       } catch (err) {
         setError('Failed to read the image file.');
         console.error(err);
@@ -218,7 +222,7 @@ export default function App() {
     setResultImage(null);
     setError(null);
     setDetectedObjects([]);
-    setSelectedObject(null);
+    setSelectedObjects([]);
   }, []);
 
   const handleGenerate = useCallback(async (promptOverride?: string) => {
@@ -250,29 +254,29 @@ export default function App() {
       setError("Please upload an image first.");
       return;
     }
+    if (selectedObjects.length !== 1) {
+      setError("Please select exactly one object for this action.");
+      return;
+    }
+    const selectedObject = selectedObjects[0];
   
     const preset = EDIT_PRESETS[presetKey];
     let finalPrompt: string;
 
-    if (selectedObject) {
-      const { label, boundingBox } = selectedObject;
-      const { x_min, y_min, x_max, y_max } = boundingBox;
-      const bboxString = `[${y_min.toFixed(4)}, ${x_min.toFixed(4)}, ${y_max.toFixed(4)}, ${x_max.toFixed(4)}]`;
-      
-      // Special handling for text removal when an object is selected
-      if (presetKey === 'removeText') {
-        finalPrompt = `Remove the selected text '${label}' located within the normalized bounding box (y_min, x_min, y_max, x_max) ${bboxString}. Inpaint the area naturally to match the surroundings.`;
-      } else {
-        finalPrompt = `${preset.prompt}. The main subject for this operation is the selected '${label}' located within the normalized bounding box (y_min, x_min, y_max, x_max) ${bboxString}. Focus the effect on this object or the area around it as appropriate.`;
-      }
+    const { label, boundingBox } = selectedObject;
+    const { x_min, y_min, x_max, y_max } = boundingBox;
+    const bboxString = `[${y_min.toFixed(4)}, ${x_min.toFixed(4)}, ${y_max.toFixed(4)}, ${x_max.toFixed(4)}]`;
+    
+    if (presetKey === 'removeText') {
+      finalPrompt = `Remove the selected text '${label}' located within the normalized bounding box (y_min, x_min, y_max, x_max) ${bboxString}. Inpaint the area naturally to match the surroundings.`;
     } else {
-      finalPrompt = preset.prompt;
+      finalPrompt = `${preset.prompt}. The main subject for this operation is the selected '${label}' located within the normalized bounding box (y_min, x_min, y_max, x_max) ${bboxString}. Focus the effect on this object or the area around it as appropriate.`;
     }
     
     setActivePreset(presetKey);
     handleGenerate(finalPrompt);
 
-  }, [image, selectedObject, handleGenerate]);
+  }, [image, selectedObjects, handleGenerate]);
 
   const handleDetectObjects = useCallback(async () => {
     if (!image) {
@@ -282,7 +286,7 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setResultImage(null);
-    setSelectedObject(null);
+    setSelectedObjects([]);
     setDetectedObjects([]);
     
     try {
@@ -297,7 +301,7 @@ export default function App() {
     }
   }, [image]);
 
-  const handleDetectWatermark = useCallback(async () => {
+  const handleDetectText = useCallback(async () => {
     if (!image) {
       setError("Please upload an image first.");
       return;
@@ -305,13 +309,13 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setResultImage(null);
-    setSelectedObject(null);
+    setSelectedObjects([]);
     setDetectedObjects([]);
     
     try {
       const base64Data = image.src.split(',')[1];
-      const texts = await detectWatermarkText(base64Data, image.file.type);
-      setDetectedObjects(texts); // Reusing the same state for simplicity
+      const texts = await detectText(base64Data, image.file.type);
+      setDetectedObjects(texts);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
       console.error(err);
@@ -321,21 +325,56 @@ export default function App() {
   }, [image]);
   
   const handleObjectAction = useCallback((action: 'isolate' | 'remove') => {
-    if (!selectedObject) return;
-    const { label, boundingBox } = selectedObject;
-    const { x_min, y_min, x_max, y_max } = boundingBox;
-    const bboxString = `[${y_min.toFixed(4)}, ${x_min.toFixed(4)}, ${y_max.toFixed(4)}, ${x_max.toFixed(4)}]`;
-
+    if (selectedObjects.length === 0) return;
+    
+    if (action === 'isolate' && selectedObjects.length > 1) {
+      setError("Please select only one object to isolate.");
+      return;
+    }
+    
     let actionPrompt = '';
     if (action === 'isolate') {
+      const { label, boundingBox } = selectedObjects[0];
+      const { x_min, y_min, x_max, y_max } = boundingBox;
+      const bboxString = `[${y_min.toFixed(4)}, ${x_min.toFixed(4)}, ${y_max.toFixed(4)}, ${x_max.toFixed(4)}]`;
       actionPrompt = `Isolate the ${label} located within the bounding box (y_min, x_min, y_max, x_max) ${bboxString}. Make the background transparent.`;
     } else { // remove
-      actionPrompt = `Remove the ${label} located within the bounding box (y_min, x_min, y_max, x_max) ${bboxString}. Inpaint the area naturally to match the surroundings.`;
+      const objectsToRemove = selectedObjects.map((obj, i) => 
+        `${i+1}. The object '${obj.label}' located within bounding box [${obj.boundingBox.y_min.toFixed(4)}, ${obj.boundingBox.x_min.toFixed(4)}, ${obj.boundingBox.y_max.toFixed(4)}, ${obj.boundingBox.x_max.toFixed(4)}]`
+      ).join('\n');
+      actionPrompt = `Remove the following objects from the image and inpaint their areas naturally to match the surroundings:\n${objectsToRemove}`;
     }
     
     handleGenerate(actionPrompt);
 
-  }, [selectedObject, handleGenerate]);
+  }, [selectedObjects, handleGenerate]);
+  
+  const handleObjectSelect = useCallback((object: DetectedObject) => {
+    setSelectedObjects(prevSelected => {
+      const isSelected = prevSelected.some(obj => areObjectsEqual(obj, object));
+      if (isSelected) {
+        return prevSelected.filter(obj => !areObjectsEqual(obj, object));
+      } else {
+        return [...prevSelected, object];
+      }
+    });
+  }, []);
+
+  const handleTranslate = useCallback(async () => {
+    if (selectedObjects.length === 0) return;
+
+    const objectsToTranslate = selectedObjects.map((obj, i) => 
+        `${i + 1}. Original Text: "${obj.label}", Bounding Box (y_min, x_min, y_max, x_max): [${obj.boundingBox.y_min.toFixed(4)}, ${obj.boundingBox.x_min.toFixed(4)}, ${obj.boundingBox.y_max.toFixed(4)}, ${obj.boundingBox.x_max.toFixed(4)}]`
+      ).join('\n');
+    
+    const translationPrompt = `Translate the text in the following regions from Chinese to Korean. Then, replace the original text with the Korean translation. Ensure the new text fits naturally in the same location and matches the original style (font, color, size) as closely as possible.
+
+Here are the text regions to translate:
+${objectsToTranslate}
+`;
+
+    handleGenerate(translationPrompt);
+  }, [selectedObjects, handleGenerate]);
 
   // --- Compositor Handlers ---
   const handleObjectImageChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
@@ -413,8 +452,8 @@ export default function App() {
                   src={image.src} 
                   onClear={clearImage}
                   detectedObjects={detectedObjects}
-                  selectedObject={selectedObject}
-                  onObjectSelect={setSelectedObject}
+                  selectedObjects={selectedObjects}
+                  onObjectSelect={handleObjectSelect}
                 />
               ) : (
                 <ImagePlaceholder onFileChange={handleFileChange} />
@@ -437,7 +476,7 @@ export default function App() {
               First, use a detection tool. Then, click a box on the image to select an item for editing.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-              <div className="flex flex-col sm:flex-row md:flex-col gap-4">
+               <div className="flex flex-col sm:flex-row md:flex-col gap-4">
                 <button
                   onClick={handleDetectObjects}
                   disabled={!image || isLoading}
@@ -447,42 +486,53 @@ export default function App() {
                   Detect Objects
                 </button>
                 <button
-                  onClick={handleDetectWatermark}
+                  onClick={handleDetectText}
                   disabled={!image || isLoading}
                   className="w-full flex items-center justify-center gap-2 bg-sky-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
                 >
                   <TextScanIcon className="w-6 h-6" />
-                  Detect Watermark
+                  Detect Text
                 </button>
               </div>
               
-              <div className="md:col-span-2 flex flex-col sm:flex-row gap-4">
+              <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
                  <button
                     onClick={() => handleObjectAction('isolate')}
-                    disabled={!selectedObject || isLoading}
-                    className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+                    disabled={selectedObjects.length !== 1 || isLoading}
+                    className="flex items-center justify-center gap-2 bg-teal-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+                    title={selectedObjects.length !== 1 ? "Please select exactly one object to isolate" : "Isolate object"}
                   >
                     <IsolateIcon className="w-6 h-6" />
                     Isolate
                   </button>
                   <button
                     onClick={() => handleObjectAction('remove')}
-                    disabled={!selectedObject || isLoading}
-                    className="w-full flex items-center justify-center gap-2 bg-rose-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+                    disabled={selectedObjects.length === 0 || isLoading}
+                    className="flex items-center justify-center gap-2 bg-rose-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+                    title={selectedObjects.length === 0 ? "Select one or more objects to remove" : "Remove selected object(s)"}
                   >
                     <TrashIcon className="w-6 h-6" />
                     Remove
                   </button>
+                  <button
+                    onClick={handleTranslate}
+                    disabled={selectedObjects.length === 0 || isLoading}
+                    className="flex items-center justify-center gap-2 bg-amber-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+                    title={selectedObjects.length === 0 ? "Select one or more text objects to translate" : "Translate selected text to Korean"}
+                  >
+                    <TranslateIcon className="w-6 h-6" />
+                    번역
+                  </button>
               </div>
             </div>
-             {detectedObjects.length > 0 && !selectedObject && (
+             {detectedObjects.length > 0 && selectedObjects.length === 0 && (
               <p className="text-center text-cyan-300 mt-4 text-sm animate-fade-in">
                 Detection complete. Click on a box on the image to select an item.
               </p>
             )}
-             {selectedObject && (
+             {selectedObjects.length > 0 && (
               <p className="text-center text-green-300 mt-4 text-sm animate-fade-in">
-                Selected: <span className="font-bold">{selectedObject.label}</span>. Now choose an action.
+                Selected: <span className="font-bold">{selectedObjects.length} item(s)</span>. Now choose an action.
               </p>
             )}
           </div>
@@ -498,11 +548,12 @@ export default function App() {
                   icon={<span className="text-4xl">{preset.icon}</span>}
                   label={preset.label}
                   onClick={() => handleQuickEdit(key as PresetKey)}
-                  disabled={!image || isLoading}
+                  disabled={!image || isLoading || selectedObjects.length > 1}
                   loading={isLoading && activePreset === key}
                 />
               ))}
             </div>
+            {selectedObjects.length > 1 && <p className="text-center text-yellow-400 mt-4 text-xs">Quick Actions are disabled when multiple objects are selected.</p>}
           </div>
           
           {/* Background Compositor */}

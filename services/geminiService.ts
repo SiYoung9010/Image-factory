@@ -142,12 +142,12 @@ export const editImage = async (
 };
 
 /**
- * Detects watermark text in an image using the Gemini API.
+ * Detects text in an image using the Gemini API.
  * @param base64ImageData The base64 encoded image data.
  * @param mimeType The MIME type of the image.
  * @returns A promise that resolves to an array of detected text objects.
  */
-export const detectWatermarkText = async (
+export const detectText = async (
   base64ImageData: string,
   mimeType: string
 ): Promise<DetectedObject[]> => {
@@ -163,7 +163,7 @@ export const detectWatermarkText = async (
             },
           },
           {
-            text: "Identify only text that appears to be a watermark or is digitally overlaid on the image. Do not identify text that is part of the original photo (e.g., text on a book page or a sign). Provide a label (the text itself) and a precise bounding box for each piece of identified text.",
+            text: "Identify all text elements in the image. For each piece of text, provide a label (the text itself) and a precise bounding box. Ignore text that is too small or illegible.",
           },
         ],
       },
@@ -175,15 +175,15 @@ export const detectWatermarkText = async (
 
     const jsonText = response.text.trim();
     if (!jsonText) {
-      console.warn("API returned an empty response for watermark detection.");
+      console.warn("API returned an empty response for text detection.");
       return [];
     }
 
     const result = JSON.parse(jsonText);
     return result.objects || [];
   } catch (error) {
-    console.error("Error detecting watermark text with Gemini:", error);
-    throw new Error("Failed to detect watermark text in the image. The model may not have been able to identify any.");
+    console.error("Error detecting text with Gemini:", error);
+    throw new Error("Failed to detect text in the image. The model may not have been able to identify any.");
   }
 };
 
